@@ -1,0 +1,29 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_roots": {
+      "conditions": {
+        "items": [
+          {
+            "items": [
+              "minecraft:vine",
+              "minecraft:hanging_roots",
+              "minecraft:mangrove_roots"
+            ]
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    }
+  },
+  "requirements": [
+    [
+      "has_roots"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "craftablerooteddirt:rooted_dirt"
+    ]
+  }
+}

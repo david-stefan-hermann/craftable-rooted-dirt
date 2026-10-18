@@ -1,0 +1,7 @@
+{
+  "pack": {
+    "description": "Craftable Rooted Dirt: dirt + vine, hanging roots or mangrove roots",
+    "min_format": [107, 1],
+    "max_format": 121
+  }
+}
