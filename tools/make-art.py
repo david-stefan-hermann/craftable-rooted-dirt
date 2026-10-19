@@ -3,7 +3,7 @@
 
     python3 tools/make-art.py <minecraft-client.jar>
 
-Writes pack.png (128, the icon in the pack list), docs/icon.png (400, the CurseForge avatar) and docs/recipe.png
+Writes docs/icon.png (400, the CurseForge avatar), pack.png (the same at 128, the icon in the pack list) and docs/recipe.png
 (the three recipes in crafting table screens). Block items are drawn as small isometric cubes like the inventory does.
 """
 import io
@@ -31,7 +31,7 @@ def tinted(image: Image.Image, rgb) -> Image.Image:
     return out
 
 
-def face(tex: Image.Image, size: int, origin, u, v, shade: float) -> Image.Image:
+def face(tex: Image.Image, size, origin, u, v, shade: float) -> Image.Image:
     """The texture mapped onto the parallelogram origin + s*u + t*v (s, t in 0..1), nearest neighbour."""
     big = tex.resize((tex.width * 16, tex.height * 16), Image.NEAREST)
     det = u[0] * v[1] - u[1] * v[0]
@@ -41,26 +41,41 @@ def face(tex: Image.Image, size: int, origin, u, v, shade: float) -> Image.Image
     w, h = big.size
     data = (a * w, b * w, -(a * origin[0] + b * origin[1]) * w,
             d * h, e * h, -(d * origin[0] + e * origin[1]) * h)
-    out = big.transform((size, size), Image.AFFINE, data, resample=Image.NEAREST)
-    mask = Image.new('L', (size, size), 0)
+    out = big.transform(size, Image.AFFINE, data, resample=Image.NEAREST)
+    mask = Image.new('L', size, 0)
     from PIL import ImageDraw
     corners = [origin, (origin[0] + u[0], origin[1] + u[1]),
                (origin[0] + u[0] + v[0], origin[1] + u[1] + v[1]), (origin[0] + v[0], origin[1] + v[1])]
     ImageDraw.Draw(mask).polygon(corners, fill=255)
-    alpha = Image.composite(out.getchannel('A'), Image.new('L', (size, size), 0), mask)
+    alpha = Image.composite(out.getchannel('A'), Image.new('L', size, 0), mask)
     out = ImageEnhance.Brightness(out.convert('RGB')).enhance(shade).convert('RGBA')
     out.putalpha(alpha)
     return out
 
 
-def cube(top: Image.Image, side: Image.Image, size: int) -> Image.Image:
-    """An isometric block, size x size, top brightest, left and right side darker."""
-    a = size / 2
-    out = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    for layer in (face(side, size, (0, a / 2), (a, a / 2), (0, a), 0.8),
-                  face(side, size, (a, a), (a, -a / 2), (0, a), 0.6),
-                  face(top, size, (0, a / 2), (a, -a / 2), (a, a / 2), 1.0)):
+def cube(top: Image.Image, side: Image.Image, width: int) -> Image.Image:
+    """An isometric block (all edges the same length), width wide and about 1.15 times as high, top brightest,
+    left and right side darker."""
+    a = width / 2
+    h = a / 3 ** 0.5  # half the height of the top face
+    e = 2 * h  # a vertical edge
+    size = (width, round(2 * h + e))
+    out = Image.new('RGBA', size, (0, 0, 0, 0))
+    for layer in (face(side, size, (0, h), (a, h), (0, e), 0.8),
+                  face(side, size, (a, 2 * h), (a, -h), (0, e), 0.6),
+                  face(top, size, (0, h), (a, -h), (a, h), 1.0)):
         out.alpha_composite(layer)
+    return out
+
+
+def icon(rooted, vine, hanging, roots_top, roots_side) -> Image.Image:
+    """400 x 400: a block of rooted dirt below, the vine, the hanging roots and the mangrove roots in an arc above."""
+    out = Image.new('RGBA', (400, 400), (0, 0, 0, 0))
+    block = cube(rooted, rooted, 230)
+    out.alpha_composite(block, ((400 - block.width) // 2, 400 - block.height))
+    for (x, y), item in zip([(10, 25), (140, 0), (270, 25)],
+                            [flat(vine, 120), flat(hanging, 120), cube(roots_top, roots_side, 120)]):
+        out.alpha_composite(item, (x, y))
     return out
 
 
@@ -69,12 +84,17 @@ def flat(tex: Image.Image, size: int) -> Image.Image:
 
 
 def crafting_screen(gui: Image.Image, scale: int, grid: dict, result: Image.Image) -> Image.Image:
-    """The upper part of the crafting table screen with items in the grid (slot index -> picture) and the result."""
+    """The upper part of the crafting table screen with items in the grid (slot index -> picture) and the result,
+    each centred in its 16 x 16 slot."""
     screen = gui.crop((0, 0, 176, 80)).resize((176 * scale, 80 * scale), Image.NEAREST)
+    cell = 16 * scale
+
+    def put(item: Image.Image, x: int, y: int) -> None:
+        screen.alpha_composite(item, (x * scale + (cell - item.width) // 2, y * scale + (cell - item.height) // 2))
+
     for slot, item in grid.items():
-        x, y = 30 + 18 * (slot % 3), 17 + 18 * (slot // 3)
-        screen.alpha_composite(item, (x * scale, y * scale))
-    screen.alpha_composite(result, (124 * scale, 35 * scale))
+        put(item, 30 + 18 * (slot % 3), 17 + 18 * (slot // 3))
+    put(result, 124, 35)
     return screen
 
 
@@ -88,14 +108,16 @@ def main() -> None:
     hanging = texture(jar, 'block/hanging_roots')
     gui = texture(jar, 'gui/container/crafting_table')
 
-    cube(rooted, rooted, 128).save(ROOT / 'pack.png')
     (ROOT / 'docs').mkdir(exist_ok=True)
-    cube(rooted, rooted, 400).save(ROOT / 'docs/icon.png')
+    logo = icon(rooted, vine, hanging, roots_top, roots_side)
+    logo.save(ROOT / 'docs/icon.png')
+    logo.resize((128, 128), Image.LANCZOS).save(ROOT / 'pack.png')
 
     scale = 3
     slot = 16 * scale
-    ingredients = [flat(vine, slot), flat(hanging, slot), cube(roots_top, roots_side, slot)]
-    screens = [crafting_screen(gui, scale, {3: cube(dirt, dirt, slot), 4: item}, cube(rooted, rooted, slot))
+    block = 14 * scale  # a block fits its slot in height
+    ingredients = [flat(vine, slot), flat(hanging, slot), cube(roots_top, roots_side, block)]
+    screens = [crafting_screen(gui, scale, {3: cube(dirt, dirt, block), 4: item}, cube(rooted, rooted, block))
                for item in ingredients]
     gap = 8 * scale
     w, h = screens[0].size
